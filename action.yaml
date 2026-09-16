@@ -1,5 +1,5 @@
 name: Markdown Embed Code From File
-author: "@tokusumi"
+author: "@singlecheeze"
 description: Action to synchronize "any" code in markdown with an external file. No more managing code as plain text.
 inputs:
   token:
@@ -24,7 +24,7 @@ inputs:
   silent:
     description: "No issue comment in silent mode"
     required: false
-    default: false
+    default: ""
 runs:
   using: docker
   image: Dockerfile
