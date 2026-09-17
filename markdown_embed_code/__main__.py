@@ -31,9 +31,27 @@ class PartialGitHubEvent(BaseModel):
 
 
 settings = Settings()
-subprocess.run(["git", "config", "--local", "user.name", "github-actions"], check=True)
+
+workspace = Path.cwd().resolve()
+
+# GitHub Actions mounts the checked-out repository from the host into
+# the action container. Git considers that ownership boundary unsafe
+# unless the mounted workspace is explicitly trusted.
 subprocess.run(
-    ["git", "config", "--local", "user.email", "github-actions@github.com"], check=True
+    ["git", "config", "--global", "--add", "safe.directory", str(workspace)],
+    check=True,
+)
+
+git = ["git", "-C", str(workspace)]
+
+subprocess.run(
+    git + ["config", "--local", "user.name", "github-actions"],
+    check=True,
+)
+
+subprocess.run(
+    git + ["config", "--local", "user.email", "github-actions@github.com"],
+    check=True,
 )
 
 
@@ -70,18 +88,24 @@ with open(output_path, "w") as f:
 
 
 proc = subprocess.run(
-    ["git", "status", "--porcelain"], check=True, stdout=subprocess.PIPE
+    git + ["status", "--porcelain"],
+    check=True,
+    stdout=subprocess.PIPE,
 )
+
 if not proc.stdout:
     # no change
     if not settings.input_silent:
         pr.create_issue_comment(settings.input_no_change)
     sys.exit(0)
 
-subprocess.run(["git", "add", output_path], check=True)
-subprocess.run(["git", "commit", "-m", settings.input_message], check=True)
+subprocess.run(git + ["add", str(output_path)], check=True)
+subprocess.run(git + ["commit", "-m", settings.input_message], check=True)
 
 remote_repo = f"https://{settings.github_actor}:{settings.input_token.get_secret_value()}@github.com/{settings.github_repository}.git"
-proc = subprocess.run(["git", "push", remote_repo, f"HEAD:{pr.head.ref}"], check=False)
+proc = subprocess.run(
+    git + ["push", remote_repo, f"HEAD:{pr.head.ref}"],
+    check=False,
+)
 if proc.returncode != 0:
     sys.exit(1)
