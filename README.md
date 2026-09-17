@@ -464,87 +464,6 @@ This avoids detached pull-request checkout refs and makes the push destination e
 
 Repository rules, protected branches, organization policies, or workflow permissions can still prevent GitHub Actions from pushing. Adjust the workflow to match your repository's security model.
 
-## Migration From the Original Action
-
-Earlier versions required a specific Markdown file and encoded the source path into the code-fence language:
-
-````markdown
-```yaml:Performance/IOMMU/99-enable-iommu-pass-through.yaml
-```
-````
-
-The current version separates the source path from the Markdown language:
-
-````markdown
-<!-- embed-code: ./99-enable-iommu-pass-through.yaml -->
-```yaml
-```
-````
-
-Earlier workflows also invoked the action like this:
-
-```yaml
-- uses: singlecheeze/markdown-embed-code@main
-  with:
-    markdown: Performance/IOMMU/IOMMU.md
-    token: ${{ secrets.GITHUB_TOKEN }}
-    message: Synchronizing Readme
-    silent: false
-```
-
-The current action needs only:
-
-```yaml
-- name: Synchronize embedded code
-  id: embed
-  uses: singlecheeze/markdown-embed-code@main
-```
-
-Git commit and push behavior now belongs in the workflow rather than inside the action.
-
-## Simplified Architecture
-
-The current implementation intentionally removes the dependencies and infrastructure required by the original version.
-
-It does not require:
-
-- Docker;
-- PyGithub;
-- Pydantic;
-- Marko;
-- cryptography;
-- PyNaCl;
-- cffi;
-- GitHub API authentication;
-- pull-request event parsing; or
-- built-in Git commit/push logic.
-
-The action is a composite action that executes:
-
-```bash
-python3 "$GITHUB_ACTION_PATH/embed.py" "$GITHUB_WORKSPACE"
-```
-
-The embed operation itself does not require a GitHub token.
-
-## Version Pinning
-
-Examples in this README use:
-
-```yaml
-uses: singlecheeze/markdown-embed-code@main
-```
-
-while developing the action.
-
-For long-term use, create a release tag and pin consuming repositories to that version:
-
-```yaml
-uses: singlecheeze/markdown-embed-code@v2
-```
-
-This prevents later changes to `main` from unexpectedly changing existing workflows.
-
 ## Requirements
 
 The action requires:
@@ -560,21 +479,3 @@ permissions:
 ```
 
 The embed operation itself requires no GitHub token and makes no GitHub API calls.
-
-## Action Repository Layout
-
-The simplified action can be kept very small:
-
-```text
-markdown-embed-code/
-├── action.yaml
-├── embed.py
-├── README.md
-└── LICENSE
-```
-
-No runtime dependency files or Docker image are required.
-
-## License
-
-See [LICENSE](./LICENSE).
