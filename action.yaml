@@ -24,7 +24,7 @@ inputs:
   silent:
     description: "No issue comment in silent mode"
     required: false
-    default: ""
+    default: "false"
 runs:
   using: docker
   image: Dockerfile
