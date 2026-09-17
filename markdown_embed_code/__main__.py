@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from github import Github
+from github import Auth, Github
 from pydantic import BaseModel, BaseSettings, SecretStr
 
 from markdown_embed_code import get_code_emb
@@ -54,8 +54,9 @@ subprocess.run(
     check=True,
 )
 
+auth = Auth.Token(settings.input_token.get_secret_value())
+g = Github(auth=auth)
 
-g = Github(settings.input_token.get_secret_value())
 repo = g.get_repo(settings.github_repository)
 if not settings.github_event_path.is_file():
     sys.exit(1)
