@@ -2,23 +2,34 @@ name: Markdown Embed Code From File
 author: "@singlecheeze"
 
 description: >
-  Synchronize fenced code blocks in Markdown
-  with local source files.
+  Recursively synchronize fenced code blocks in Markdown files
+  with local source files throughout the checked-out repository.
 
-inputs:
-  markdown:
-    description: Markdown file to update
-    required: true
+outputs:
+  changed:
+    description: Whether any Markdown files were changed
+    value: ${{ steps.embed.outputs.changed }}
+  scanned_files:
+    description: Number of Markdown files scanned
+    value: ${{ steps.embed.outputs.scanned_files }}
+  files_with_embeds:
+    description: Number of Markdown files containing embed directives
+    value: ${{ steps.embed.outputs.files_with_embeds }}
+  files_changed:
+    description: Number of Markdown files changed
+    value: ${{ steps.embed.outputs.files_changed }}
+  embedded_blocks:
+    description: Number of embedded code blocks processed
+    value: ${{ steps.embed.outputs.embedded_blocks }}
 
 runs:
   using: composite
   steps:
-    - name: Embed source files
+    - name: Synchronize embedded code
+      id: embed
       shell: bash
-      env:
-        MARKDOWN_FILE: ${{ inputs.markdown }}
       run: |
-        python3 "$GITHUB_ACTION_PATH/embed.py" "$MARKDOWN_FILE"
+        python3 "$GITHUB_ACTION_PATH/embed.py" "$GITHUB_WORKSPACE"
 
 branding:
   icon: bookmark
