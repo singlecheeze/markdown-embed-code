@@ -1,33 +1,25 @@
 name: Markdown Embed Code From File
 author: "@singlecheeze"
-description: Action to synchronize "any" code in markdown with an external file. No more managing code as plain text.
+
+description: >
+  Synchronize fenced code blocks in Markdown
+  with local source files.
+
 inputs:
-  token:
-    description: Token for the repo. Can be passed in using {{ secrets.GITHUB_TOKEN }}
-    required: true
   markdown:
-    description: Target markdown file path.
-    required: false
-    default: "README.md"
-  message:
-    description: Commit message for action.
-    required: false
-    default: "Embedding code into Markdown"
-  no_change:
-    description: Issue comment at no changed
-    required: false
-    default: "No changes on README!" 
-  output:
-    description: Output markdown file path. If none, override target file.
-    required: false
-    default: ""
-  silent:
-    description: "No issue comment in silent mode"
-    required: false
-    default: "false"
+    description: Markdown file to update
+    required: true
+
 runs:
-  using: docker
-  image: Dockerfile
+  using: composite
+  steps:
+    - name: Embed source files
+      shell: bash
+      env:
+        MARKDOWN_FILE: ${{ inputs.markdown }}
+      run: |
+        python3 "$GITHUB_ACTION_PATH/embed.py" "$MARKDOWN_FILE"
+
 branding:
   icon: bookmark
   color: green
