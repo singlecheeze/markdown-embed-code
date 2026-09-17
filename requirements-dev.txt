@@ -1,6 +1,5 @@
-marko>=0.9.1
-pydantic>=1.6.1,<1.7.0
-PyGithub
+-r requirements.txt
+
 pytest
 pytest-cov
 black

@@ -1,20 +1,16 @@
-FROM python:3.7-alpine
+FROM python:3.11.16-alpine3.24
 
-# Runtime dependencies
-RUN apk add --no-cache \
-    git \
-    libffi
+# Runtime dependency used by the action
+RUN apk add --no-cache git
 
 COPY ./requirements.txt /app/requirements.txt
 
-# cffi has no usable prebuilt wheel for this Python/Alpine combination,
-# so install the compiler and headers needed to build it.
-# Remove build dependencies afterward to keep the action image small.
-RUN apk add --no-cache --virtual .build-deps \
-        build-base \
-        libffi-dev \
-    && pip install --no-cache-dir -r /app/requirements.txt \
-    && apk del .build-deps
+# All native dependencies used by this action have Python 3.11
+# musllinux wheels, so a compiler toolchain is no longer needed.
+RUN python -m pip install \
+    --no-cache-dir \
+    --only-binary=:all: \
+    -r /app/requirements.txt
 
 COPY ./markdown_embed_code /app/markdown_embed_code
 
