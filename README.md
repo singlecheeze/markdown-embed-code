@@ -1,10 +1,24 @@
 # Markdown Embed Code From File
 
-A small GitHub Action that keeps fenced code blocks in Markdown synchronized with local source files.
+A lightweight GitHub Action that recursively keeps fenced code blocks in Markdown synchronized with local source files.
 
-Instead of copying configuration, scripts, YAML, or other code into documentation by hand, add an `embed-code` directive above a normal Markdown code block. The action replaces the contents of that block with the current contents of the referenced file.
+Add an `embed-code` directive above a normal Markdown code block. The action walks the checked-out repository, finds Markdown files containing embed directives, and replaces each managed code block with the current contents of the referenced source file.
 
-The action only updates the Markdown file. Git commit and push behavior stays in your workflow, where it is explicit and easy to debug.
+The source file remains the single source of truth.
+
+## Features
+
+- Recursively scans the repository for `.md` and `.markdown` files.
+- Processes every valid `<!-- embed-code: ... -->` directive it finds.
+- Resolves source paths relative to the Markdown file containing the directive.
+- Preserves the Markdown code-fence language.
+- Ignores example directives shown inside fenced code blocks.
+- Validates all embeds before writing changes.
+- Prevents source paths from escaping the repository.
+- Uses only the Python standard library.
+- Requires no Docker image or third-party Python packages.
+- Leaves Git commit and push behavior to the consuming workflow.
+- Exposes outputs that indicate whether files changed and how many embeds were processed.
 
 ## Example
 
@@ -46,11 +60,9 @@ spec:
 ```
 ````
 
-The source file remains the single source of truth.
+## Embed Syntax
 
-## Usage
-
-The embed directive must be immediately followed by a fenced Markdown code block:
+The directive must be immediately followed by a fenced Markdown code block:
 
 ````markdown
 <!-- embed-code: ./path/to/source-file -->
@@ -58,81 +70,127 @@ The embed directive must be immediately followed by a fenced Markdown code block
 ```
 ````
 
-The path is resolved relative to the Markdown file containing the directive.
+The source path is relative to the Markdown file containing the directive.
 
-For example, if the Markdown file is:
+For example:
 
 ```text
-docs/networking/README.md
+docs/
+└── networking/
+    ├── README.md
+    └── example.yaml
 ```
 
-then:
+Inside `docs/networking/README.md`:
 
-```markdown
+````markdown
 <!-- embed-code: ./example.yaml -->
+```yaml
 ```
+````
 
-references:
+The action reads `docs/networking/example.yaml`.
 
-```text
-docs/networking/example.yaml
-```
-
-You can use any Markdown fence language:
+You can use any normal Markdown fence language, for example:
 
 ````markdown
 <!-- embed-code: ./example.sh -->
 ```bash
 ```
-````
 
-````markdown
 <!-- embed-code: ./example.json -->
 ```json
 ```
-````
 
-````markdown
 <!-- embed-code: ./config.yaml -->
 ```yaml
 ```
 ````
 
-The language identifier is preserved. Only the contents inside the fenced block are replaced.
+Only the content inside each managed code block is replaced. The directive, opening fence, language identifier, closing fence, and surrounding Markdown remain intact.
 
-## GitHub Action
+## Repository-Wide Scanning
 
-Use the action after checking out your repository:
+The action does not require a path to a specific Markdown file.
+
+A single invocation scans the entire checked-out repository:
+
+```yaml
+- name: Synchronize embedded code
+  id: embed
+  uses: singlecheeze/markdown-embed-code@main
+```
+
+The action recursively examines `.md` and `.markdown` files under `$GITHUB_WORKSPACE`.
+
+For example:
+
+```text
+.
+├── README.md
+├── docs/
+│   ├── README.md
+│   └── networking/
+│       └── NETWORKING.md
+├── Performance/
+│   ├── IOMMU/
+│   │   └── IOMMU.md
+│   └── Storage/
+│       └── README.md
+└── examples/
+    └── example.markdown
+```
+
+All of those Markdown files are eligible for processing during the same run. Files without an `embed-code` directive are left unchanged. The `.git` directory is skipped.
+
+## GitHub Action Usage
+
+Use the action after checking out the repository:
 
 ```yaml
 - name: Checkout repository
   uses: actions/checkout@v7
 
 - name: Synchronize embedded code
+  id: embed
   uses: singlecheeze/markdown-embed-code@main
-  with:
-    markdown: Performance/IOMMU/IOMMU.md
 ```
 
-The action accepts one input:
+There are no required inputs.
 
-| Input | Required | Description |
-| --- | --- | --- |
-| `markdown` | Yes | Path to the Markdown file that contains one or more `embed-code` directives |
+The action updates files in the checked-out workspace but does **not** commit or push them.
 
-The action does **not** commit or push changes. This is intentional.
+## Outputs
+
+The action exposes the following outputs:
+
+| Output | Description |
+| --- | --- |
+| `changed` | `true` if one or more Markdown files were changed |
+| `scanned_files` | Number of Markdown files scanned |
+| `files_with_embeds` | Number of Markdown files containing valid embed directives |
+| `files_changed` | Number of Markdown files that were modified |
+| `embedded_blocks` | Total number of embedded code blocks processed |
+
+Example:
+
+```yaml
+- name: Synchronize embedded code
+  id: embed
+  uses: singlecheeze/markdown-embed-code@main
+
+- name: Show summary
+  run: |
+    echo "Changed: ${{ steps.embed.outputs.changed }}"
+    echo "Markdown files scanned: ${{ steps.embed.outputs.scanned_files }}"
+    echo "Files with embeds: ${{ steps.embed.outputs.files_with_embeds }}"
+    echo "Files changed: ${{ steps.embed.outputs.files_changed }}"
+    echo "Embedded blocks: ${{ steps.embed.outputs.embedded_blocks }}"
+```
 
 ## Complete Workflow Example
 
-The following workflow updates a Markdown file whenever either the Markdown file or its source file changes, then commits the generated Markdown back to the current branch.
-
-Create:
-
-```text
-.github/workflows/embed-code.yml
-```
-
-with:
+Create `.github/workflows/embed-code.yml`:
 
 ```yaml
 name: Synchronize embedded code
@@ -141,10 +199,6 @@ on:
   push:
     branches:
       - "**"
-    paths:
-      - "Performance/IOMMU/99-enable-iommu-pass-through.yaml"
-      - "Performance/IOMMU/IOMMU.md"
-      - ".github/workflows/embed-code.yml"
 
   workflow_dispatch:
 
@@ -160,75 +214,69 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Synchronize embedded code
+        id: embed
         uses: singlecheeze/markdown-embed-code@main
-        with:
-          markdown: Performance/IOMMU/IOMMU.md
 
-      - name: Check for generated changes
-        id: changes
+      - name: Show generated changes
+        if: steps.embed.outputs.changed == 'true'
         shell: bash
         run: |
-          if git diff --quiet -- Performance/IOMMU/IOMMU.md; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No embedded-code changes."
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-
-            echo "Generated Markdown changes:"
-            git diff -- Performance/IOMMU/IOMMU.md
-          fi
+          echo "Markdown files changed: ${{ steps.embed.outputs.files_changed }}"
+          echo "Embedded blocks processed: ${{ steps.embed.outputs.embedded_blocks }}"
+          git status --short
+          git diff
 
       - name: Commit and push generated Markdown
-        if: steps.changes.outputs.changed == 'true'
+        if: steps.embed.outputs.changed == 'true'
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email \
             "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add Performance/IOMMU/IOMMU.md
+          git add -A
           git commit -m "docs: synchronize embedded code"
           git push origin "HEAD:${GITHUB_REF_NAME}"
 ```
 
-### Why commit and push are outside the action
+### Why the workflow runs on every push
 
-Keeping Git operations in the consuming workflow makes the behavior visible and predictable.
+Because an embedded source can be any local file type, maintaining a `paths:` filter for every possible source would make the workflow fragile. Running the scanner on each push keeps the workflow generic. Markdown files without embed directives are only scanned and are not modified.
+
+## Why Commit and Push Are Outside the Action
 
 The action has one responsibility:
 
 ```text
-source file
-    |
-    v
- embed.py
-    |
-    v
-Markdown file
+source files
+     |
+     v
+  embed.py
+     |
+     v
+Markdown files
 ```
 
-The workflow decides what to do with the result:
+The consuming workflow decides what happens next:
 
 ```text
 Markdown changed?
-     |
-   +---+
-   |   |
-  no  yes
-   |   |
- exit  commit
-        |
-        v
-      push
+       |
+     +---+
+     |   |
+    no  yes
+     |   |
+   exit  commit
+          |
+          v
+        push
 ```
 
-This avoids coupling Markdown generation to pull-request APIs, GitHub event payloads, repository authentication, or branch-specific push logic.
+Keeping Git operations outside the action makes authentication, branch behavior, commit messages, and repository policy explicit in the consuming workflow.
 
 ## Multiple Embedded Files
 
-A Markdown file can contain more than one `embed-code` directive.
-
-Example:
+A single Markdown document can contain multiple embedded files:
 
 ````markdown
 ## MachineConfig
@@ -250,32 +298,110 @@ Example:
 ```
 ````
 
-Each block is updated independently during the same action run.
+The action can also process embeds spread across many Markdown files throughout the repository in the same run.
+
+## Source Links
+
+If you want readers to open the original source file, use a normal relative Markdown link above the embedded block:
+
+````markdown
+[Source: `config.yaml`](./config.yaml)
+
+<!-- embed-code: ./config.yaml -->
+```yaml
+```
+````
+
+Relative links avoid hard-coding repository names, branch names, GitHub URLs, or historical commit SHAs.
+
+## Directives Inside Documentation Examples
+
+The scanner understands fenced Markdown blocks.
+
+An `embed-code` directive shown inside a fenced example is treated as documentation rather than as a real embed request. This means a README can safely demonstrate the action syntax without the scanner trying to process those examples.
+
+## Repository Boundary Protection
+
+Embed paths must remain inside the checked-out repository.
+
+Valid:
+
+```markdown
+<!-- embed-code: ./config.yaml -->
+```
+
+Also valid when the resolved file remains inside the repository:
+
+```markdown
+<!-- embed-code: ../shared/example.yaml -->
+```
+
+Invalid:
+
+```markdown
+<!-- embed-code: ../../../../etc/passwd -->
+```
+
+Absolute paths are also rejected.
+
+## Validation and Atomic Updates
+
+The action validates all discovered embed directives before writing any files.
+
+If one directive is invalid, the action fails and does not partially update other Markdown files.
+
+Validation failures include:
+
+- a referenced source file does not exist;
+- a directive is not immediately followed by a fenced code block;
+- a code block has no closing fence;
+- an absolute source path is used; or
+- a source path resolves outside the repository.
 
 ## Local Testing
 
-The action uses a dependency-free Python script, so you can test the same behavior locally:
+The action uses a dependency-free Python script.
+
+Run it locally with a target repository path:
 
 ```bash
-python3 embed.py Performance/IOMMU/IOMMU.md
+python3 embed.py /path/to/repository
 ```
 
-If the Markdown changes, output looks similar to:
+To test against the current directory:
+
+```bash
+python3 embed.py .
+```
+
+A run that changes files produces output similar to:
 
 ```text
-Performance/IOMMU/IOMMU.md: updated (1 embedded block(s))
+updated: Performance/IOMMU/IOMMU.md (1 embedded block(s))
+updated: Storage/NVMe/README.md (3 embedded block(s))
+
+Markdown embed summary
+  Markdown files scanned: 47
+  Files with embeds:      8
+  Embedded blocks:        19
+  Files changed:          2
 ```
 
 If everything is already synchronized:
 
 ```text
-Performance/IOMMU/IOMMU.md: unchanged (1 embedded block(s))
+Markdown embed summary
+  Markdown files scanned: 47
+  Files with embeds:      8
+  Embedded blocks:        19
+  Files changed:          0
 ```
 
-You can inspect the result with:
+Inspect generated changes with:
 
 ```bash
-git diff -- Performance/IOMMU/IOMMU.md
+git status --short
+git diff
 ```
 
 ## Recommended Repository Pattern
@@ -291,7 +417,7 @@ docs/
     └── example.json
 ```
 
-Then the Markdown stays portable:
+Then your documentation remains portable:
 
 ````markdown
 <!-- embed-code: ./config.yaml -->
@@ -307,39 +433,13 @@ Then the Markdown stays portable:
 ```
 ````
 
-If the entire directory moves, the relative references continue to point to the files beside the Markdown document.
-
-## Source Links
-
-If you want readers to be able to open the original source file, use a normal relative Markdown link above the embedded block:
-
-````markdown
-[Source: `config.yaml`](./config.yaml)
-
-<!-- embed-code: ./config.yaml -->
-```yaml
-```
-````
-
-Using a relative link avoids hard-coding a repository URL, branch name, or historical commit SHA.
-
-## Error Handling
-
-The action fails if:
-
-- The requested Markdown file does not exist
-- An `embed-code` source file does not exist
-- An embed directive is not immediately followed by a fenced code block
-- A fenced code block has no closing fence
-- An absolute source path is used
-
-A failed action prints the Markdown file and location associated with the invalid directive when possible.
+If the entire directory moves, the relative source references continue to work.
 
 ## Branches and Pull Requests
 
-The example workflow uses the `push` event.
+The recommended workflow uses the `push` event.
 
-For a branch in the same repository, the normal flow is:
+For a branch in the same repository:
 
 ```text
 developer pushes source change
@@ -348,25 +448,133 @@ developer pushes source change
 workflow runs on that branch
           |
           v
-Markdown is synchronized
+repository-wide embed scan
           |
           v
-bot commit is pushed to that branch
+Markdown synchronized
           |
           v
-existing pull request sees the new commit
+bot commit pushed to branch
+          |
+          v
+existing pull request sees new commit
 ```
 
-This avoids detached pull-request checkout refs and makes the destination of `git push` explicit.
+This avoids detached pull-request checkout refs and makes the push destination explicit.
 
-Repository rules, branch protection, or organization policies can still prevent GitHub Actions from pushing to a branch. Adjust the workflow to match your repository's security model.
+Repository rules, protected branches, organization policies, or workflow permissions can still prevent GitHub Actions from pushing. Adjust the workflow to match your repository's security model.
+
+## Migration From the Original Action
+
+Earlier versions required a specific Markdown file and encoded the source path into the code-fence language:
+
+````markdown
+```yaml:Performance/IOMMU/99-enable-iommu-pass-through.yaml
+```
+````
+
+The current version separates the source path from the Markdown language:
+
+````markdown
+<!-- embed-code: ./99-enable-iommu-pass-through.yaml -->
+```yaml
+```
+````
+
+Earlier workflows also invoked the action like this:
+
+```yaml
+- uses: singlecheeze/markdown-embed-code@main
+  with:
+    markdown: Performance/IOMMU/IOMMU.md
+    token: ${{ secrets.GITHUB_TOKEN }}
+    message: Synchronizing Readme
+    silent: false
+```
+
+The current action needs only:
+
+```yaml
+- name: Synchronize embedded code
+  id: embed
+  uses: singlecheeze/markdown-embed-code@main
+```
+
+Git commit and push behavior now belongs in the workflow rather than inside the action.
+
+## Simplified Architecture
+
+The current implementation intentionally removes the dependencies and infrastructure required by the original version.
+
+It does not require:
+
+- Docker;
+- PyGithub;
+- Pydantic;
+- Marko;
+- cryptography;
+- PyNaCl;
+- cffi;
+- GitHub API authentication;
+- pull-request event parsing; or
+- built-in Git commit/push logic.
+
+The action is a composite action that executes:
+
+```bash
+python3 "$GITHUB_ACTION_PATH/embed.py" "$GITHUB_WORKSPACE"
+```
+
+The embed operation itself does not require a GitHub token.
+
+## Version Pinning
+
+Examples in this README use:
+
+```yaml
+uses: singlecheeze/markdown-embed-code@main
+```
+
+while developing the action.
+
+For long-term use, create a release tag and pin consuming repositories to that version:
+
+```yaml
+uses: singlecheeze/markdown-embed-code@v2
+```
+
+This prevents later changes to `main` from unexpectedly changing existing workflows.
 
 ## Requirements
 
-The action is a composite GitHub Action and requires:
+The action requires:
 
-- A runner with `python3`
-- `actions/checkout` before invoking the action
-- `contents: write` only if the consuming workflow intends to commit and push generated changes
+- a GitHub Actions runner with `python3`; and
+- `actions/checkout` before invoking the action.
 
-The embed operation itself does not require a GitHub token and does not call the GitHub API.
+If the workflow will commit generated files, it also needs:
+
+```yaml
+permissions:
+  contents: write
+```
+
+The embed operation itself requires no GitHub token and makes no GitHub API calls.
+
+## Action Repository Layout
+
+The simplified action can be kept very small:
+
+```text
+markdown-embed-code/
+├── action.yaml
+├── embed.py
+├── README.md
+└── LICENSE
+```
+
+No runtime dependency files or Docker image are required.
+
+## License
+
+See [LICENSE](./LICENSE).
